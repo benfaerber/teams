@@ -1,8 +1,10 @@
-use serde::{Serialize, Deserialize};
+use builder_pattern::Builder;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Color {
+    #[default]
     Default,
     Dark,
     Light,
@@ -12,19 +14,54 @@ pub enum Color {
     Attention,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FontSize {
+    #[default]
+    Default,
+    Small,
+    Medium,
+    ExtraLarge,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FontWeight {
+    #[default]
+    Default,
+    Lighter,
+    Darker,
+}
+
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Font {
+    #[default]
     Default,
     Monospace,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TextBlockStyle {
+    #[default]
+    Default,
+    Heading,
+}
+
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum HorizontalAlignment {
+    #[default]
     Left,
     Center,
     Right,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum BlockType {
+    TextBlock,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,55 +71,86 @@ pub struct BasicMessage {
 
 impl BasicMessage {
     pub fn text(text: &str) -> Self {
-        Self {
-            text: text.into()
-        }
+        Self { text: text.into() }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 enum CardType {
+    #[default]
     Message,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Builder, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CardBlock {
-    #[serde(rename = "type")]
-    _type: String,
+pub struct TextBlock {
+    #[into]
     text: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[default(None)]
     color: Option<Color>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[default(None)]
     font_type: Option<Font>,
+
+    #[default(None)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    horizontal_alignment: Option<HorizontalAlignment>, 
+    horizontal_alignment: Option<HorizontalAlignment>,
+
+    #[default(None)]
     #[serde(skip_serializing_if = "Option::is_none")]
     is_subtle: Option<bool>,
+
+    #[default(None)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_lines: Option<i32>,
+
+    #[default(None)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<FontSize>,
+
+    #[default(None)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    weight: Option<FontWeight>,
+
+    #[default(None)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wrap: Option<bool>,
+
+    #[default(None)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_block_style: Option<TextBlockStyle>,
+}
+
+impl TextBlock {
+    pub fn with_text(text: &str) -> Self {
+        Self::new().text(text).build()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum CardBlock {
+    Text(TextBlock),
 }
 
 impl CardBlock {
-    pub fn text(text: &str) -> Self {
-        Self {
-            _type: "TextBlock".into(),
-            text: text.into(),
-            color: None,
-            font_type: None,
-            horizontal_alignment: None,
-            is_subtle: None,
+    fn get_type_name(&self) -> String {
+        match &self {
+            CardBlock::Text(_) => "TextBlock",
         }
+        .into()
     }
 
-    pub fn colored_text(text: &str, color: Color) -> Self {
-        Self {
-            _type: "TextBlock".into(),
-            text: text.into(),
-            color: Some(color),
-            font_type: None,
-            horizontal_alignment: None,
-            is_subtle: None,
-        }
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut raw = serde_json::to_value(match self {
+            CardBlock::Text(text) => text,
+        })
+        .unwrap();
+        raw["_type"] = serde_json::Value::String(self.get_type_name().to_string());
+        raw
     }
 }
 
@@ -93,20 +161,22 @@ pub struct CardContent {
     #[serde(rename = "type")]
     _type: String,
     version: String,
-    body: Vec<CardBlock>,
+    body: Vec<serde_json::Value>,
 }
 
 impl CardContent {
-    pub fn body(body: Vec<CardBlock>) -> Self {
+    pub fn body(body: Vec<TextBlock>) -> Self {
         Self {
             schema: "http://adaptivecards.io/schemas/adaptive-card.json".into(),
             _type: "AdaptiveCard".into(),
             version: "1.2".into(),
-            body
+            body: body
+                .iter()
+                .map(|item| serde_json::to_value(item).unwrap())
+                .collect(),
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,7 +191,7 @@ impl CardAttachment {
         Self {
             content_type: "application/vnd.microsoft.card.adaptive".into(),
             content_url: None,
-            content
+            content,
         }
     }
 }
@@ -137,7 +207,7 @@ impl Message {
     pub fn attachments(attachments: Vec<CardAttachment>) -> Self {
         Self {
             _type: CardType::Message,
-            attachments
+            attachments,
         }
     }
 
@@ -145,4 +215,3 @@ impl Message {
         Self::attachments(vec![attachment])
     }
 }
-
